@@ -51,6 +51,11 @@ class Video(Base):
         back_populates="video",
         cascade="all, delete-orphan",
     )
+    comments: Mapped[List["Comment"]] = relationship(
+        "Comment",
+        back_populates="video",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<Video(id={self.id}, video_id='{self.video_id}', title='{self.title[:30]}')>"

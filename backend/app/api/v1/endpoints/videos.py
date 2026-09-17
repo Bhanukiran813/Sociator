@@ -9,7 +9,9 @@ from app.models.channel import Channel
 from app.models.video import Video
 from app.models.analytics_snapshot import AnalyticsSnapshot
 from app.schemas.video import VideoResponse, VideoTrackRequest, VideoComment
+from app.schemas.comment import CommentSyncResponse, CommentListResponse
 from app.services.youtube import youtube_service
+from app.services.comments import comment_service
 
 router = APIRouter()
 
@@ -194,14 +196,14 @@ async def sync_video(
     return video
 
 
-@router.get("/{video_identifier}/comments", response_model=List[VideoComment])
-async def get_video_comments(
+@router.post("/{video_identifier}/comments/sync", response_model=CommentSyncResponse)
+async def sync_video_comments(
     video_identifier: str,
-    limit: int = Query(20, ge=1, le=100),
+    max_results: int = Query(100, ge=1, le=100, description="Max comments to fetch from YouTube"),
     db: Session = Depends(get_db),
 ):
     """
-    Fetch top comments for a tracked video directly from YouTube.
+    Synchronize comments for a tracked video from YouTube into PostgreSQL.
     Accepts database ID (e.g. '1') or YouTube 11-char video ID.
     """
     video = find_video_by_identifier(db, video_identifier)
@@ -211,7 +213,34 @@ async def get_video_comments(
             detail=f"Tracked video '{video_identifier}' not found.",
         )
 
-    return await youtube_service.get_video_comments(video.video_id, max_results=limit)
+    return await comment_service.sync_video_comments(db, video, max_results=max_results)
+
+
+@router.get("/{video_identifier}/comments", response_model=CommentListResponse)
+def get_video_comments(
+    video_identifier: str,
+    skip: int = Query(0, ge=0, description="Number of comments to skip"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of comments to return"),
+    db: Session = Depends(get_db),
+):
+    """
+    Retrieve stored comments for a tracked video from PostgreSQL with pagination.
+    Accepts database ID (e.g. '1') or YouTube 11-char video ID.
+    """
+    video = find_video_by_identifier(db, video_identifier)
+    if not video:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tracked video '{video_identifier}' not found.",
+        )
+
+    items, total = comment_service.get_comments_for_video(db, video.id, skip=skip, limit=limit)
+    return CommentListResponse(
+        items=items,
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.delete("/{video_identifier}", status_code=status.HTTP_204_NO_CONTENT)

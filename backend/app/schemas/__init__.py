@@ -24,6 +24,12 @@ from app.schemas.analytics import (
     ChannelLeaderboardItem,
     ChannelComparisonItem,
 )
+from app.schemas.comment import (
+    CommentBase,
+    CommentResponse,
+    CommentSyncResponse,
+    CommentListResponse,
+)
 
 __all__ = [
     "ChannelBase",
@@ -43,4 +49,8 @@ __all__ = [
     "ChannelGrowthSummary",
     "ChannelLeaderboardItem",
     "ChannelComparisonItem",
+    "CommentBase",
+    "CommentResponse",
+    "CommentSyncResponse",
+    "CommentListResponse",
 ]

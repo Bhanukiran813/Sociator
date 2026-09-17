@@ -108,8 +108,14 @@ export const api = {
     });
   },
 
-  getVideoComments: (identifier, limit = 20) => {
-    return request(`/videos/${encodeURIComponent(identifier)}/comments?limit=${limit}`);
+  getVideoComments: (identifier, limit = 50, skip = 0) => {
+    return request(`/videos/${encodeURIComponent(identifier)}/comments?limit=${limit}&skip=${skip}`);
+  },
+
+  syncVideoComments: (identifier, maxResults = 100) => {
+    return request(`/videos/${encodeURIComponent(identifier)}/comments/sync?max_results=${maxResults}`, {
+      method: "POST",
+    });
   },
 
   deleteVideo: (identifier) => {
