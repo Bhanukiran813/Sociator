@@ -1,0 +1,16 @@
+# Core FastAPI Framework & ASGI Server
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+
+# Settings & Data Validation
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+python-dotenv>=1.0.1
+
+# Database ORM, Driver & Migrations
+sqlalchemy>=2.0.36
+psycopg2-binary>=2.9.10
+alembic>=1.14.0
+
+# HTTP Client (External APIs)
+httpx>=0.28.0
