@@ -51,6 +51,12 @@ class Comment(Base):
 
     # Relationships
     video: Mapped["Video"] = relationship("Video", back_populates="comments")
+    analysis: Mapped[Optional["CommentAnalysis"]] = relationship(
+        "CommentAnalysis",
+        back_populates="comment",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<Comment(id={self.id}, youtube_comment_id='{self.youtube_comment_id}', video_id={self.video_id})>"

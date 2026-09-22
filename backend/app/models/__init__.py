@@ -8,5 +8,6 @@ from app.models.channel import Channel
 from app.models.video import Video
 from app.models.analytics_snapshot import AnalyticsSnapshot
 from app.models.comment import Comment
+from app.models.comment_analysis import CommentAnalysis
 
-__all__ = ["Base", "Channel", "Video", "AnalyticsSnapshot", "Comment"]
+__all__ = ["Base", "Channel", "Video", "AnalyticsSnapshot", "Comment", "CommentAnalysis"]
