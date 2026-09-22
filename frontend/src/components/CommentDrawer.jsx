@@ -18,6 +18,44 @@ import {
 import { api } from "../services/api";
 import { formatCompactNumber, formatTimeAgo } from "../utils/format";
 
+export function computeSentimentLabel(pos = 0, neu = 0, neg = 0, count = 1) {
+  if (count === 0) return "No Data";
+  if (pos >= 60.0 && neg < 20.0) return "Mostly Positive";
+  if (neg >= 40.0 || (neg >= 30.0 && neg > pos)) return "Mostly Negative";
+  if (neu >= 50.0 && pos < 40.0 && neg < 20.0) return "Mostly Neutral";
+  return "Mixed";
+}
+
+function getSentimentBadgeStyle(label) {
+  switch (label) {
+    case "Mostly Positive":
+      return {
+        bg: "rgba(16, 185, 129, 0.12)",
+        border: "1px solid rgba(16, 185, 129, 0.3)",
+        color: "#34d399",
+      };
+    case "Mostly Negative":
+      return {
+        bg: "rgba(239, 68, 68, 0.12)",
+        border: "1px solid rgba(239, 68, 68, 0.3)",
+        color: "#f87171",
+      };
+    case "Mostly Neutral":
+      return {
+        bg: "rgba(100, 116, 139, 0.12)",
+        border: "1px solid rgba(100, 116, 139, 0.3)",
+        color: "#94a3b8",
+      };
+    case "Mixed":
+    default:
+      return {
+        bg: "rgba(99, 102, 241, 0.12)",
+        border: "1px solid rgba(99, 102, 241, 0.3)",
+        color: "#a5b4fc",
+      };
+  }
+}
+
 export default function CommentDrawer({ video, isOpen, onClose }) {
   const [comments, setComments] = useState([]);
   const [total, setTotal] = useState(0);
@@ -481,55 +519,45 @@ export default function CommentDrawer({ video, isOpen, onClose }) {
               </div>
 
               {/* Executive Audience Verdict Badge */}
-              <div
-                style={{
-                  background:
-                    intelligence.sentiment.positive_percentage >= 50
-                      ? "rgba(16, 185, 129, 0.12)"
-                      : intelligence.sentiment.negative_percentage >= 30
-                      ? "rgba(239, 68, 68, 0.12)"
-                      : "rgba(99, 102, 241, 0.12)",
-                  border:
-                    intelligence.sentiment.positive_percentage >= 50
-                      ? "1px solid rgba(16, 185, 129, 0.3)"
-                      : intelligence.sentiment.negative_percentage >= 30
-                      ? "1px solid rgba(239, 68, 68, 0.3)"
-                      : "1px solid rgba(99, 102, 241, 0.3)",
-                  borderRadius: "8px",
-                  padding: "8px 12px",
-                  marginBottom: "14px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  fontSize: "0.82rem",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <TrendingUp
-                    size={16}
-                    color={
-                      intelligence.sentiment.positive_percentage >= 50
-                        ? "#34d399"
-                        : intelligence.sentiment.negative_percentage >= 30
-                        ? "#f87171"
-                        : "#a5b4fc"
-                    }
-                  />
-                  <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
-                    Audience Reception:{" "}
-                    <strong>
-                      {intelligence.sentiment.positive_percentage >= 50
-                        ? "🌟 Overwhelmingly Positive & Receptive"
-                        : intelligence.sentiment.negative_percentage >= 30
-                        ? "⚠️ High Critical & Constructive Feedback"
-                        : "⚖️ Balanced & Highly Inquisitive"}
-                    </strong>
-                  </span>
-                </div>
-                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                  Avg Confidence: {Math.round(intelligence.sentiment.average_sentiment_score * 100)}%
-                </span>
-              </div>
+              {(() => {
+                const sentimentLabel =
+                  intelligence.sentiment.label ||
+                  computeSentimentLabel(
+                    intelligence.sentiment.positive_percentage,
+                    intelligence.sentiment.neutral_percentage,
+                    intelligence.sentiment.negative_percentage,
+                    intelligence.analyzed_comments
+                  );
+                const badgeStyle = getSentimentBadgeStyle(sentimentLabel);
+                return (
+                  <div
+                    style={{
+                      background: badgeStyle.bg,
+                      border: badgeStyle.border,
+                      borderRadius: "8px",
+                      padding: "8px 12px",
+                      marginBottom: "14px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      fontSize: "0.82rem",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <TrendingUp size={16} color={badgeStyle.color} />
+                      <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                        Audience Sentiment:{" "}
+                        <strong style={{ color: badgeStyle.color }}>
+                          {sentimentLabel}
+                        </strong>
+                      </span>
+                    </div>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                      Avg Sentiment Score: {Math.round(intelligence.sentiment.average_sentiment_score * 100)}%
+                    </span>
+                  </div>
+                );
+              })()}
 
               {/* Visual Sentiment Distribution Bar */}
               <div style={{ marginBottom: "12px" }}>
@@ -630,13 +658,13 @@ export default function CommentDrawer({ video, isOpen, onClose }) {
 
                 <div className="intel-stat-box" style={{ borderTop: "2px solid #818cf8" }}>
                   <div style={{ fontSize: "0.72rem", color: "#818cf8", fontWeight: 700, textTransform: "uppercase" }}>
-                    Confidence
+                    Avg Score
                   </div>
                   <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "#fff", margin: "2px 0" }}>
                     {Math.round(intelligence.sentiment.average_sentiment_score * 100)}%
                   </div>
                   <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                    AI confidence
+                    Avg Sentiment Score
                   </div>
                 </div>
               </div>

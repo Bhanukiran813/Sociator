@@ -35,7 +35,7 @@ class CommentAnalysisResult(BaseModel):
         ...,
         ge=0.0,
         le=1.0,
-        description="Normalized confidence/sentiment score between 0.0 and 1.0",
+        description="Normalized sentiment intensity score between 0.0 (minimal/weak) and 1.0 (strong/intense)",
     )
     intent: str = Field(
         ...,
@@ -137,6 +137,7 @@ class SentimentDistribution(BaseModel):
     neutral_percentage: float = 0.0
     negative_percentage: float = 0.0
     average_sentiment_score: float = 0.0
+    label: str = "No Data"
 
 
 class CommentIntelligenceSummaryResponse(BaseModel):

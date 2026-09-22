@@ -32,6 +32,31 @@ class CommentIntelligenceConfigError(CommentIntelligenceError):
     pass
 
 
+def compute_sentiment_label(
+    positive_percentage: float,
+    neutral_percentage: float,
+    negative_percentage: float,
+    analyzed_comments: int = 1,
+) -> str:
+    """
+    Computes a transparent, data-driven sentiment label based on the underlying distribution:
+    - "No Data": when analyzed_comments == 0
+    - "Mostly Positive": positive_percentage >= 60.0 and negative_percentage < 20.0
+    - "Mostly Negative": negative_percentage >= 40.0 or (negative_percentage >= 30.0 and negative_percentage > positive_percentage)
+    - "Mostly Neutral": neutral_percentage >= 50.0 and positive_percentage < 40.0 and negative_percentage < 20.0
+    - "Mixed": Any other distribution where sentiment is contested or no single category dominates
+    """
+    if analyzed_comments == 0:
+        return "No Data"
+    if positive_percentage >= 60.0 and negative_percentage < 20.0:
+        return "Mostly Positive"
+    if negative_percentage >= 40.0 or (negative_percentage >= 30.0 and negative_percentage > positive_percentage):
+        return "Mostly Negative"
+    if neutral_percentage >= 50.0 and positive_percentage < 40.0 and negative_percentage < 20.0:
+        return "Mostly Neutral"
+    return "Mixed"
+
+
 COMMENT_INTELLIGENCE_SYSTEM_PROMPT = """You are an expert AI comment analyst for YouTube content creators.
 Your task is to analyze viewer comments with extreme precision and output structured classification data.
 
@@ -40,7 +65,7 @@ Analyze the given comment across these dimensions:
    - "positive": Expresses appreciation, enthusiasm, happiness, or agreement.
    - "neutral": Neutral statements, observations, timestamps, or balanced remarks.
    - "negative": Expresses frustration, dissatisfaction, disagreement, or harsh critique.
-   Provide a normalized sentiment_score between 0.0 and 1.0 reflecting confidence and intensity.
+   Provide a normalized sentiment_score between 0.0 and 1.0 reflecting sentiment intensity (0.0 = minimal/weak sentiment, 1.0 = strong/intense sentiment).
 
 2. Intent:
    Select exactly one primary intent category:
@@ -486,7 +511,7 @@ class CommentIntelligenceService:
                 total_comments=total_comments,
                 analyzed_comments=0,
                 coverage_percentage=0.0,
-                sentiment=SentimentDistribution(),
+                sentiment=SentimentDistribution(label="No Data"),
                 top_topics=[],
                 top_intents=[],
                 actionable_count=0,
@@ -508,20 +533,27 @@ class CommentIntelligenceService:
         neu_count = sentiment_counts.get("neutral", 0)
         neg_count = sentiment_counts.get("negative", 0)
 
+        pos_pct = round((pos_count / analyzed_comments) * 100.0, 2)
+        neu_pct = round((neu_count / analyzed_comments) * 100.0, 2)
+        neg_pct = round((neg_count / analyzed_comments) * 100.0, 2)
+
         avg_score = db.scalar(
             select(func.avg(CommentAnalysis.sentiment_score))
             .join(Comment, Comment.id == CommentAnalysis.comment_id)
             .where(Comment.video_id == video_id)
         ) or 0.0
 
+        label = compute_sentiment_label(pos_pct, neu_pct, neg_pct, analyzed_comments)
+
         sentiment_dist = SentimentDistribution(
             positive=pos_count,
             neutral=neu_count,
             negative=neg_count,
-            positive_percentage=round((pos_count / analyzed_comments) * 100.0, 2),
-            neutral_percentage=round((neu_count / analyzed_comments) * 100.0, 2),
-            negative_percentage=round((neg_count / analyzed_comments) * 100.0, 2),
+            positive_percentage=pos_pct,
+            neutral_percentage=neu_pct,
+            negative_percentage=neg_pct,
             average_sentiment_score=round(float(avg_score), 3),
+            label=label,
         )
 
         # 2. Top topics

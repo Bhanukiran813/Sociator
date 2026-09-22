@@ -14,6 +14,7 @@ from app.schemas.comment_analysis import CommentAnalysisResult
 from app.services.comment_intelligence import (
     CommentIntelligenceService,
     CommentIntelligenceConfigError,
+    compute_sentiment_label,
 )
 
 
@@ -465,4 +466,425 @@ async def test_fallback_to_json_object():
     assert result.sentiment_score == 0.95
     assert result.topic == "AI"
     mock_client.chat.completions.create.assert_called_once()
+
+
+# ===========================================================================
+# DEDICATED EDGE CASE SUITE (10 REQUIREMENTS)
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# EDGE CASE 1: 100% Positive Comments
+# ---------------------------------------------------------------------------
+@pytest.mark.anyio
+async def test_edge_case_100_percent_positive(db_session):
+    """
+    Verifies that when all comments are positive, the label is 'Mostly Positive'
+    and positive percentage is 100.0%.
+    """
+    video = Video(channel_id=1, video_id="VID_100_POS", title="Positive Video")
+    db_session.add(video)
+    db_session.commit()
+    db_session.refresh(video)
+
+    for i in range(4):
+        c = Comment(video_id=video.id, youtube_comment_id=f"pos_{i}", text=f"Awesome video {i}!")
+        db_session.add(c)
+        db_session.commit()
+        db_session.refresh(c)
+
+        a = CommentAnalysis(
+            comment_id=c.id,
+            sentiment="positive",
+            sentiment_score=0.9,
+            intent="praise",
+            topic="Tutorial",
+            is_question=False,
+            is_actionable=False,
+        )
+        db_session.add(a)
+    db_session.commit()
+
+    service = CommentIntelligenceService(api_key="sk-test-fake")
+    summary = service.get_video_comment_intelligence(db_session, video.id)
+
+    assert summary.analyzed_comments == 4
+    assert summary.sentiment.positive == 4
+    assert summary.sentiment.neutral == 0
+    assert summary.sentiment.negative == 0
+    assert summary.sentiment.positive_percentage == 100.0
+    assert summary.sentiment.neutral_percentage == 0.0
+    assert summary.sentiment.negative_percentage == 0.0
+    assert summary.sentiment.label == "Mostly Positive"
+
+
+# ---------------------------------------------------------------------------
+# EDGE CASE 2: 100% Neutral Comments
+# ---------------------------------------------------------------------------
+@pytest.mark.anyio
+async def test_edge_case_100_percent_neutral(db_session):
+    """
+    Verifies that when all comments are neutral, the label is 'Mostly Neutral'
+    and neutral percentage is 100.0%.
+    """
+    video = Video(channel_id=1, video_id="VID_100_NEU", title="Neutral Video")
+    db_session.add(video)
+    db_session.commit()
+    db_session.refresh(video)
+
+    for i in range(3):
+        c = Comment(video_id=video.id, youtube_comment_id=f"neu_{i}", text=f"Timestamp at 0{i}:00")
+        db_session.add(c)
+        db_session.commit()
+        db_session.refresh(c)
+
+        a = CommentAnalysis(
+            comment_id=c.id,
+            sentiment="neutral",
+            sentiment_score=0.5,
+            intent="other",
+            topic="Timestamps",
+            is_question=False,
+            is_actionable=False,
+        )
+        db_session.add(a)
+    db_session.commit()
+
+    service = CommentIntelligenceService(api_key="sk-test-fake")
+    summary = service.get_video_comment_intelligence(db_session, video.id)
+
+    assert summary.analyzed_comments == 3
+    assert summary.sentiment.positive == 0
+    assert summary.sentiment.neutral == 3
+    assert summary.sentiment.negative == 0
+    assert summary.sentiment.positive_percentage == 0.0
+    assert summary.sentiment.neutral_percentage == 100.0
+    assert summary.sentiment.negative_percentage == 0.0
+    assert summary.sentiment.label == "Mostly Neutral"
+
+
+# ---------------------------------------------------------------------------
+# EDGE CASE 3: 100% Negative Comments
+# ---------------------------------------------------------------------------
+@pytest.mark.anyio
+async def test_edge_case_100_percent_negative(db_session):
+    """
+    Verifies that when all comments are negative, the label is 'Mostly Negative'
+    and negative percentage is 100.0%.
+    """
+    video = Video(channel_id=1, video_id="VID_100_NEG", title="Negative Video")
+    db_session.add(video)
+    db_session.commit()
+    db_session.refresh(video)
+
+    for i in range(3):
+        c = Comment(video_id=video.id, youtube_comment_id=f"neg_{i}", text=f"Broken audio {i}")
+        db_session.add(c)
+        db_session.commit()
+        db_session.refresh(c)
+
+        a = CommentAnalysis(
+            comment_id=c.id,
+            sentiment="negative",
+            sentiment_score=0.85,
+            intent="criticism",
+            topic="Audio Quality",
+            is_question=False,
+            is_actionable=True,
+        )
+        db_session.add(a)
+    db_session.commit()
+
+    service = CommentIntelligenceService(api_key="sk-test-fake")
+    summary = service.get_video_comment_intelligence(db_session, video.id)
+
+    assert summary.analyzed_comments == 3
+    assert summary.sentiment.positive == 0
+    assert summary.sentiment.neutral == 0
+    assert summary.sentiment.negative == 3
+    assert summary.sentiment.negative_percentage == 100.0
+    assert summary.sentiment.label == "Mostly Negative"
+
+
+# ---------------------------------------------------------------------------
+# EDGE CASE 4: Mixed Positive / Neutral Comments
+# ---------------------------------------------------------------------------
+@pytest.mark.anyio
+async def test_edge_case_mixed_positive_neutral(db_session):
+    """
+    Tests both evenly split positive/neutral ('Mixed') and positive-dominant positive/neutral ('Mostly Positive').
+    """
+    # Case 4A: 50% Positive, 50% Neutral -> neither satisfies >= 60% positive nor pure neutral -> "Mixed"
+    label_even = compute_sentiment_label(50.0, 50.0, 0.0, analyzed_comments=10)
+    assert label_even == "Mixed"
+
+    # Case 4B: 70% Positive, 30% Neutral -> >= 60% positive, < 20% negative -> "Mostly Positive"
+    label_pos_dom = compute_sentiment_label(70.0, 30.0, 0.0, analyzed_comments=10)
+    assert label_pos_dom == "Mostly Positive"
+
+
+# ---------------------------------------------------------------------------
+# EDGE CASE 5: Mixed Positive / Negative Comments
+# ---------------------------------------------------------------------------
+@pytest.mark.anyio
+async def test_edge_case_mixed_positive_negative(db_session):
+    """
+    Tests mixed distributions involving both positive and negative comments.
+    """
+    # 50% positive, 30% negative, 20% neutral -> negative < 40 and not > positive; positive < 60 -> "Mixed"
+    label_mixed = compute_sentiment_label(50.0, 20.0, 30.0, analyzed_comments=10)
+    assert label_mixed == "Mixed"
+
+    # 45% negative, 45% positive, 10% neutral -> negative >= 40% -> "Mostly Negative"
+    label_high_neg = compute_sentiment_label(45.0, 10.0, 45.0, analyzed_comments=10)
+    assert label_high_neg == "Mostly Negative"
+
+
+# ---------------------------------------------------------------------------
+# EDGE CASE 6: Zero Analyzed Comments
+# ---------------------------------------------------------------------------
+@pytest.mark.anyio
+async def test_edge_case_zero_analyzed_comments(db_session):
+    """
+    Verifies that a video with zero analyzed comments returns safe zero metrics and 'No Data' label.
+    """
+    video = Video(channel_id=1, video_id="VID_ZERO", title="Unanalyzed Video")
+    db_session.add(video)
+    db_session.commit()
+    db_session.refresh(video)
+
+    service = CommentIntelligenceService(api_key="sk-test-fake")
+    summary = service.get_video_comment_intelligence(db_session, video.id)
+
+    assert summary.video_id == video.id
+    assert summary.total_comments == 0
+    assert summary.analyzed_comments == 0
+    assert summary.coverage_percentage == 0.0
+    assert summary.sentiment.label == "No Data"
+    assert summary.sentiment.positive == 0
+    assert summary.sentiment.neutral == 0
+    assert summary.sentiment.negative == 0
+    assert summary.sentiment.average_sentiment_score == 0.0
+    assert summary.top_topics == []
+    assert summary.top_intents == []
+    assert summary.actionable_count == 0
+    assert summary.question_count == 0
+
+
+# ---------------------------------------------------------------------------
+# EDGE CASE 7: Partially Analyzed Comments
+# ---------------------------------------------------------------------------
+@pytest.mark.anyio
+async def test_edge_case_partially_analyzed_comments(db_session):
+    """
+    Verifies that coverage is calculated accurately when only some comments have been analyzed.
+    Total = 10, Analyzed = 4 -> coverage = 40.0%.
+    """
+    video = Video(channel_id=1, video_id="VID_PARTIAL", title="Partial Video")
+    db_session.add(video)
+    db_session.commit()
+    db_session.refresh(video)
+
+    # 10 comments in total
+    comments = []
+    for i in range(10):
+        c = Comment(video_id=video.id, youtube_comment_id=f"part_{i}", text=f"Comment {i}")
+        comments.append(c)
+    db_session.add_all(comments)
+    db_session.commit()
+    for c in comments:
+        db_session.refresh(c)
+
+    # Analyze only the first 4 (3 positive, 1 neutral)
+    for i in range(4):
+        a = CommentAnalysis(
+            comment_id=comments[i].id,
+            sentiment="positive" if i < 3 else "neutral",
+            sentiment_score=0.8,
+            intent="praise" if i < 3 else "other",
+            topic="Coding",
+            is_question=False,
+            is_actionable=False,
+        )
+        db_session.add(a)
+    db_session.commit()
+
+    service = CommentIntelligenceService(api_key="sk-test-fake")
+    summary = service.get_video_comment_intelligence(db_session, video.id)
+
+    assert summary.total_comments == 10
+    assert summary.analyzed_comments == 4
+    assert summary.coverage_percentage == 40.0
+    # Positive percentage among analyzed: 3/4 = 75.0%
+    assert summary.sentiment.positive == 3
+    assert summary.sentiment.positive_percentage == 75.0
+    assert summary.sentiment.neutral == 1
+    assert summary.sentiment.neutral_percentage == 25.0
+    assert summary.sentiment.negative == 0
+    assert summary.sentiment.negative_percentage == 0.0
+    assert summary.sentiment.label == "Mostly Positive"
+
+
+# ---------------------------------------------------------------------------
+# EDGE CASE 8: Sentiment Score Boundaries (0.0 and 1.0)
+# ---------------------------------------------------------------------------
+def test_edge_case_sentiment_score_boundaries():
+    """
+    Verifies that boundary values 0.0 and 1.0 are valid, while values < 0.0 or > 1.0 are rejected.
+    """
+    # 0.0 is valid
+    res_min = CommentAnalysisResult(
+        sentiment="neutral",
+        sentiment_score=0.0,
+        intent="other",
+        topic="General",
+        is_question=False,
+        is_actionable=False,
+    )
+    assert res_min.sentiment_score == 0.0
+
+    # 1.0 is valid
+    res_max = CommentAnalysisResult(
+        sentiment="positive",
+        sentiment_score=1.0,
+        intent="praise",
+        topic="General",
+        is_question=False,
+        is_actionable=False,
+    )
+    assert res_max.sentiment_score == 1.0
+
+    # Below 0.0 is invalid
+    with pytest.raises(ValidationError):
+        CommentAnalysisResult(
+            sentiment="negative",
+            sentiment_score=-0.01,
+            intent="criticism",
+            topic="General",
+            is_question=False,
+            is_actionable=False,
+        )
+
+    # Above 1.0 is invalid
+    with pytest.raises(ValidationError):
+        CommentAnalysisResult(
+            sentiment="positive",
+            sentiment_score=1.01,
+            intent="praise",
+            topic="General",
+            is_question=False,
+            is_actionable=False,
+        )
+
+
+# ---------------------------------------------------------------------------
+# EDGE CASE 9: Invalid & Normalized Sentiment Values
+# ---------------------------------------------------------------------------
+def test_edge_case_invalid_sentiment_values():
+    """
+    Verifies normalization of valid sentiment variants and rejection of invalid values.
+    """
+    # Case-insensitive whitespace normalization
+    res_upper = CommentAnalysisResult(
+        sentiment="  POSITIVE \n",
+        sentiment_score=0.9,
+        intent="praise",
+        topic="General",
+        is_question=False,
+        is_actionable=False,
+    )
+    assert res_upper.sentiment == "positive"
+
+    res_neu = CommentAnalysisResult(
+        sentiment="Neutral",
+        sentiment_score=0.5,
+        intent="other",
+        topic="General",
+        is_question=False,
+        is_actionable=False,
+    )
+    assert res_neu.sentiment == "neutral"
+
+    # Completely invalid sentiment strings
+    invalid_sentiments = ["excited", "angry", "terrible", "good", "", "123"]
+    for inv in invalid_sentiments:
+        with pytest.raises(ValidationError):
+            CommentAnalysisResult(
+                sentiment=inv,
+                sentiment_score=0.5,
+                intent="other",
+                topic="General",
+                is_question=False,
+                is_actionable=False,
+            )
+
+
+# ---------------------------------------------------------------------------
+# EDGE CASE 10: Re-analysis Flow
+# ---------------------------------------------------------------------------
+@pytest.mark.anyio
+async def test_edge_case_reanalysis_flow(db_session):
+    """
+    Verifies that re-analysis with force_reanalyze=True updates the existing record
+    without creating duplicate records.
+    """
+    comment = Comment(
+        video_id=1,
+        youtube_comment_id="yt_reanalyze_test",
+        text="Initially neutral comment",
+    )
+    db_session.add(comment)
+    db_session.commit()
+    db_session.refresh(comment)
+
+    # Initial analysis
+    initial_analysis = CommentAnalysis(
+        comment_id=comment.id,
+        sentiment="neutral",
+        sentiment_score=0.5,
+        intent="other",
+        topic="General",
+        is_question=False,
+        is_actionable=False,
+        model="groq-test",
+    )
+    db_session.add(initial_analysis)
+    db_session.commit()
+    db_session.refresh(initial_analysis)
+
+    initial_id = initial_analysis.id
+
+    # Mock new analysis for re-run
+    new_result = CommentAnalysisResult(
+        sentiment="positive",
+        sentiment_score=0.95,
+        intent="praise",
+        topic="Architecture",
+        is_question=False,
+        is_actionable=False,
+    )
+    mock_client = MagicMock()
+    mock_client.beta.chat.completions.parse = AsyncMock(
+        return_value=create_mock_completion(new_result)
+    )
+
+    service = CommentIntelligenceService(api_key="sk-test-fake", client=mock_client)
+
+    # Re-analyze with force_reanalyze=True
+    updated = await service.analyze_comment(
+        db=db_session,
+        comment=comment,
+        force_reanalyze=True,
+    )
+
+    assert updated.id == initial_id  # Same primary key
+    assert updated.sentiment == "positive"
+    assert updated.sentiment_score == 0.95
+    assert updated.intent == "praise"
+    assert updated.topic == "Architecture"
+
+    # Confirm only 1 CommentAnalysis record exists in the table for this comment
+    all_analyses = db_session.query(CommentAnalysis).filter_by(comment_id=comment.id).all()
+    assert len(all_analyses) == 1
+    mock_client.beta.chat.completions.parse.assert_called_once()
+
 
