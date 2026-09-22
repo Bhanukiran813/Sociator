@@ -3,6 +3,9 @@ from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
+from app.schemas.comment_analysis import CommentAnalysisResponse
+
+
 class CommentBase(BaseModel):
     youtube_comment_id: str = Field(..., max_length=100)
     author_name: Optional[str] = Field(None, max_length=255)
@@ -17,6 +20,7 @@ class CommentResponse(CommentBase):
     video_id: int
     created_at: datetime
     updated_at: datetime
+    analysis: Optional[CommentAnalysisResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
 

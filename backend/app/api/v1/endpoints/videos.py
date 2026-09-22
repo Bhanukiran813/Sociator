@@ -7,11 +7,21 @@ from app.db.session import get_db
 from app.db.helpers import find_video_by_identifier, find_channel_by_identifier
 from app.models.channel import Channel
 from app.models.video import Video
+from app.models.comment import Comment
 from app.models.analytics_snapshot import AnalyticsSnapshot
 from app.schemas.video import VideoResponse, VideoTrackRequest, VideoComment
 from app.schemas.comment import CommentSyncResponse, CommentListResponse
+from app.schemas.comment_analysis import (
+    BatchAnalysisResult,
+    CommentAnalysisResponse,
+    CommentIntelligenceSummaryResponse,
+)
 from app.services.youtube import youtube_service
 from app.services.comments import comment_service
+from app.services.comment_intelligence import (
+    comment_intelligence_service,
+    CommentIntelligenceConfigError,
+)
 
 router = APIRouter()
 
@@ -221,10 +231,16 @@ def get_video_comments(
     video_identifier: str,
     skip: int = Query(0, ge=0, description="Number of comments to skip"),
     limit: int = Query(20, ge=1, le=100, description="Maximum number of comments to return"),
+    sentiment: Optional[str] = Query(None, description="Filter by sentiment: positive, neutral, negative"),
+    intent: Optional[str] = Query(None, description="Filter by intent (e.g. question, praise, feedback)"),
+    is_question: Optional[bool] = Query(None, description="Filter by question boolean"),
+    is_actionable: Optional[bool] = Query(None, description="Filter by actionable boolean"),
+    has_analysis: Optional[bool] = Query(None, description="Filter by whether comment has AI analysis"),
     db: Session = Depends(get_db),
 ):
     """
-    Retrieve stored comments for a tracked video from PostgreSQL with pagination.
+    Retrieve stored comments for a tracked video from PostgreSQL with pagination
+    and optional AI intelligence filters (sentiment, intent, is_question, is_actionable).
     Accepts database ID (e.g. '1') or YouTube 11-char video ID.
     """
     video = find_video_by_identifier(db, video_identifier)
@@ -234,13 +250,113 @@ def get_video_comments(
             detail=f"Tracked video '{video_identifier}' not found.",
         )
 
-    items, total = comment_service.get_comments_for_video(db, video.id, skip=skip, limit=limit)
+    items, total = comment_service.get_comments_for_video(
+        db,
+        video.id,
+        skip=skip,
+        limit=limit,
+        sentiment=sentiment,
+        intent=intent,
+        is_question=is_question,
+        is_actionable=is_actionable,
+        has_analysis=has_analysis,
+    )
     return CommentListResponse(
         items=items,
         total=total,
         skip=skip,
         limit=limit,
     )
+
+
+@router.post("/{video_identifier}/comments/analyze", response_model=BatchAnalysisResult)
+async def analyze_video_comments(
+    video_identifier: str,
+    force_reanalyze: bool = Query(False, description="Re-analyze comments that already have an analysis"),
+    limit: Optional[int] = Query(None, ge=1, le=500, description="Maximum comments to analyze in this batch"),
+    db: Session = Depends(get_db),
+):
+    """
+    Batch analyze stored YouTube comments for a tracked video using OpenAI LLM.
+    Skips already analyzed comments by default unless force_reanalyze=True.
+    """
+    video = find_video_by_identifier(db, video_identifier)
+    if not video:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tracked video '{video_identifier}' not found.",
+        )
+
+    try:
+        return await comment_intelligence_service.analyze_video_comments(
+            db=db,
+            video_id=video.id,
+            force_reanalyze=force_reanalyze,
+            limit=limit,
+        )
+    except CommentIntelligenceConfigError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+
+
+@router.post("/{video_identifier}/comments/{comment_id}/analyze", response_model=CommentAnalysisResponse)
+async def analyze_single_comment(
+    video_identifier: str,
+    comment_id: int,
+    force_reanalyze: bool = Query(False, description="Re-analyze if already analyzed"),
+    db: Session = Depends(get_db),
+):
+    """
+    Trigger AI analysis for an individual stored YouTube comment.
+    """
+    video = find_video_by_identifier(db, video_identifier)
+    if not video:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tracked video '{video_identifier}' not found.",
+        )
+
+    comment = db.query(Comment).filter(Comment.id == comment_id, Comment.video_id == video.id).first()
+    if not comment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Comment with id '{comment_id}' not found for video '{video_identifier}'.",
+        )
+
+    try:
+        analysis = await comment_intelligence_service.analyze_comment(
+            db=db,
+            comment=comment,
+            force_reanalyze=force_reanalyze,
+        )
+        return analysis
+    except CommentIntelligenceConfigError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+
+
+@router.get("/{video_identifier}/comments/intelligence", response_model=CommentIntelligenceSummaryResponse)
+def get_video_comment_intelligence(
+    video_identifier: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Retrieve aggregated comment intelligence metrics for a tracked video:
+    sentiment distribution, average score, top topics, top intents,
+    and actionable comment ratios.
+    """
+    video = find_video_by_identifier(db, video_identifier)
+    if not video:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tracked video '{video_identifier}' not found.",
+        )
+
+    return comment_intelligence_service.get_video_comment_intelligence(db=db, video_id=video.id)
 
 
 @router.delete("/{video_identifier}", status_code=status.HTTP_204_NO_CONTENT)

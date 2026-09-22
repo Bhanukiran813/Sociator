@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import List, Union
+from typing import List, Optional, Union
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -41,6 +41,17 @@ class Settings(BaseSettings):
 
     # External APIs (YouTube Data API v3)
     YOUTUBE_API_KEY: str = ""
+
+    # AI / LLM Configuration (Groq & OpenAI)
+    LLM_PROVIDER: str = "auto"  # "auto", "groq", or "openai"
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    OPENAI_BASE_URL: Optional[str] = None
+    COMMENT_ANALYSIS_BATCH_SIZE: int = 20
 
     # Automated Background Sync
     AUTO_SYNC_ENABLED: bool = True

@@ -30,6 +30,15 @@ from app.schemas.comment import (
     CommentSyncResponse,
     CommentListResponse,
 )
+from app.schemas.comment_analysis import (
+    CommentAnalysisResult,
+    CommentAnalysisResponse,
+    BatchAnalysisResult,
+    TopicBreakdown,
+    IntentBreakdown,
+    SentimentDistribution,
+    CommentIntelligenceSummaryResponse,
+)
 
 __all__ = [
     "ChannelBase",
@@ -53,4 +62,11 @@ __all__ = [
     "CommentResponse",
     "CommentSyncResponse",
     "CommentListResponse",
+    "CommentAnalysisResult",
+    "CommentAnalysisResponse",
+    "BatchAnalysisResult",
+    "TopicBreakdown",
+    "IntentBreakdown",
+    "SentimentDistribution",
+    "CommentIntelligenceSummaryResponse",
 ]

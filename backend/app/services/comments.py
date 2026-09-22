@@ -1,9 +1,10 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.comment import Comment
+from app.models.comment_analysis import CommentAnalysis
 from app.models.video import Video
 from app.services.youtube import youtube_service
 from app.schemas.comment import CommentSyncResponse
@@ -127,18 +128,54 @@ class CommentService:
         video_id: int,
         skip: int = 0,
         limit: int = 20,
+        sentiment: Optional[str] = None,
+        intent: Optional[str] = None,
+        is_question: Optional[bool] = None,
+        is_actionable: Optional[bool] = None,
+        has_analysis: Optional[bool] = None,
     ) -> Tuple[List[Comment], int]:
         """
         Retrieves stored comments for a video ordered by published date descending,
-        with pagination and total count.
+        with pagination, eager analysis loading, and optional intelligence filters.
         """
-        count_query = select(func.count(Comment.id)).where(Comment.video_id == video_id)
+        base_filter = [Comment.video_id == video_id]
+        analysis_filters = []
+
+        if sentiment is not None:
+            analysis_filters.append(CommentAnalysis.sentiment == sentiment.lower())
+        if intent is not None:
+            analysis_filters.append(CommentAnalysis.intent == intent.lower())
+        if is_question is not None:
+            analysis_filters.append(CommentAnalysis.is_question == is_question)
+        if is_actionable is not None:
+            analysis_filters.append(CommentAnalysis.is_actionable == is_actionable)
+        if has_analysis is not None:
+            if has_analysis:
+                analysis_filters.append(CommentAnalysis.id.is_not(None))
+            else:
+                analysis_filters.append(CommentAnalysis.id.is_(None))
+
+        needs_analysis_join = len(analysis_filters) > 0
+
+        count_query = select(func.count(Comment.id)).where(*base_filter)
+        items_query = (
+            select(Comment)
+            .options(joinedload(Comment.analysis))
+            .where(*base_filter)
+        )
+
+        if needs_analysis_join:
+            count_query = count_query.outerjoin(
+                CommentAnalysis, Comment.id == CommentAnalysis.comment_id
+            ).where(*analysis_filters)
+            items_query = items_query.outerjoin(
+                CommentAnalysis, Comment.id == CommentAnalysis.comment_id
+            ).where(*analysis_filters)
+
         total = db.scalar(count_query) or 0
 
         items_query = (
-            select(Comment)
-            .where(Comment.video_id == video_id)
-            .order_by(Comment.published_at.desc().nulls_last(), Comment.id.desc())
+            items_query.order_by(Comment.published_at.desc().nulls_last(), Comment.id.desc())
             .offset(skip)
             .limit(limit)
         )

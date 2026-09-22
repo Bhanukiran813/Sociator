@@ -108,14 +108,47 @@ export const api = {
     });
   },
 
-  getVideoComments: (identifier, limit = 50, skip = 0) => {
-    return request(`/videos/${encodeURIComponent(identifier)}/comments?limit=${limit}&skip=${skip}`);
+  getVideoComments: (identifier, limit = 50, skip = 0, filters = {}) => {
+    const params = new URLSearchParams({ limit, skip });
+    if (filters.sentiment) params.append("sentiment", filters.sentiment);
+    if (filters.intent) params.append("intent", filters.intent);
+    if (filters.is_question !== undefined && filters.is_question !== null) {
+      params.append("is_question", filters.is_question);
+    }
+    if (filters.is_actionable !== undefined && filters.is_actionable !== null) {
+      params.append("is_actionable", filters.is_actionable);
+    }
+    if (filters.has_analysis !== undefined && filters.has_analysis !== null) {
+      params.append("has_analysis", filters.has_analysis);
+    }
+    return request(`/videos/${encodeURIComponent(identifier)}/comments?${params.toString()}`);
   },
 
   syncVideoComments: (identifier, maxResults = 100) => {
     return request(`/videos/${encodeURIComponent(identifier)}/comments/sync?max_results=${maxResults}`, {
       method: "POST",
     });
+  },
+
+  analyzeVideoComments: (identifier, forceReanalyze = false, limit = null) => {
+    const params = new URLSearchParams({ force_reanalyze: forceReanalyze });
+    if (limit) params.append("limit", limit);
+    return request(`/videos/${encodeURIComponent(identifier)}/comments/analyze?${params.toString()}`, {
+      method: "POST",
+    });
+  },
+
+  analyzeSingleComment: (videoIdentifier, commentId, forceReanalyze = false) => {
+    return request(
+      `/videos/${encodeURIComponent(videoIdentifier)}/comments/${commentId}/analyze?force_reanalyze=${forceReanalyze}`,
+      {
+        method: "POST",
+      }
+    );
+  },
+
+  getVideoCommentIntelligence: (identifier) => {
+    return request(`/videos/${encodeURIComponent(identifier)}/comments/intelligence`);
   },
 
   deleteVideo: (identifier) => {
